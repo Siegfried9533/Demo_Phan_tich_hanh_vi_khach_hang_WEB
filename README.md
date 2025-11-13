@@ -22,7 +22,7 @@
 
 1.  **Clone dự án:**
     ```bash
-    git clone [URL-repository-cua-ban]
+    git clone https://github.com/Siegfried9533/Demo_Phan_tich_hanh_vi_khach_hang_WEB.git
     cd [ten-thu-muc-du-an]
     ```
 
