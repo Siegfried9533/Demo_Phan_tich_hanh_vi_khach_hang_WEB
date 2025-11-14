@@ -151,7 +151,7 @@ def run_rfm_kmeans_pipeline(
     
     from utils import run_rfm_kmeans_pipeline
 
-    result = run_rfm_kmeans_pipeline("online_retail_II.csv", n_clusters=4)  
+    result = run_rfm_kmeans_pipeline("data/online_retail_II.csv", n_clusters=4)  
 
     rfm = result["rfm"]   # có cột Cluster
     """
