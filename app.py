@@ -11,6 +11,7 @@ from utils import (
 
 st.set_page_config(page_title="RFM Clustering Demo", layout="wide")
 
+
 traditional_tab, ai_tab = st.tabs(["Phân tích Truyền thống", "Phân tích AI"])
 
 def _name_and_actions_for_cluster(r: float, f: float, m: float, r_med: float, f_med: float, m_med: float):
@@ -89,7 +90,6 @@ with traditional_tab:
 
     if uploaded_file_tradition is None and not csv_path_tradition:
         st.warning("Vui lòng tải CSV hoặc nhập đường dẫn để bắt đầu phân tích.")
-        st.stop()
     try:
         if uploaded_file_tradition is not None:
             df_raw = pd.read_csv(uploaded_file_tradition)
@@ -114,8 +114,10 @@ with traditional_tab:
             x='Month',
             y='TotalPrice',
             title='Doanh thu theo tháng (không tính đơn trả/hủy)',
-            labels={'TotalPrice': 'Doanh thu', 'Month': 'Tháng'}
+            labels={'TotalPrice': 'Doanh thu', 'Month': 'Tháng'},
+            template='plotly_white',
         )
+        fig_revenue.update_traces(line_color='#1f77b4')
         st.plotly_chart(fig_revenue, use_container_width=True)
 
         st.subheader("Sản phẩm bán chạy")
@@ -129,8 +131,12 @@ with traditional_tab:
             x='Description',
             y='Quantity',
             title='Top 5 sản phẩm bán chạy (không tính đơn trả/hủy)',
-            labels={'Description': 'Sản phẩm', 'Quantity': 'Số lượng bán'}
+            labels={'Description': 'Sản phẩm', 'Quantity': 'Số lượng bán'},
+            template='plotly_white',
+            color='Description',
+            color_discrete_sequence=px.colors.qualitative.Set2,
         )
+        fig_top_products.update_layout(showlegend=False)
         st.plotly_chart(fig_top_products, use_container_width=True)
 
         st.subheader("Khách hàng")
@@ -215,16 +221,44 @@ with ai_tab:
             rfm = result["rfm"]
 
         st.subheader("Biểu đồ phân tán theo cụm")
-        fig = px.scatter(
+        # Three scatter plots: R-F, R-M, F-M
+        col_a, col_b = st.columns(2)
+        with col_a:
+            fig_rf = px.scatter(
+                rfm,
+                x="Recency",
+                y="Frequency",
+                color="Cluster",
+                color_discrete_sequence=px.colors.qualitative.Set2,
+                hover_data=["Customer ID", "Recency", "Frequency", "Monetary"],
+                title="Recency vs Frequency",
+                template='plotly_white',
+            )
+            st.plotly_chart(fig_rf, use_container_width=True)
+        with col_b:
+            fig_rm = px.scatter(
+                rfm,
+                x="Recency",
+                y="Monetary",
+                color="Cluster",
+                color_discrete_sequence=px.colors.qualitative.Set2,
+                hover_data=["Customer ID", "Recency", "Frequency", "Monetary"],
+                title="Recency vs Monetary",
+                template='plotly_white',
+            )
+            st.plotly_chart(fig_rm, use_container_width=True)
+
+        fig_fm = px.scatter(
             rfm,
             x="Frequency",
             y="Monetary",
             color="Cluster",
-            color_discrete_sequence=px.colors.qualitative.Set1,
+            color_discrete_sequence=px.colors.qualitative.Set2,
             hover_data=["Customer ID", "Recency", "Frequency", "Monetary"],
-            title="Phân tán khách hàng theo cụm (trục: Frequency vs Monetary)"
+            title="Frequency vs Monetary",
+            template='plotly_white',
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_fm, use_container_width=True)
 
         st.subheader("R-F-M trung bình theo cụm")
         cluster_means = (
@@ -239,13 +273,74 @@ with ai_tab:
         f_med = rfm["Frequency"].median()
         m_med = rfm["Monetary"].median()
 
+        # Quantiles for more differentiated actions
+        r_q = {"low": rfm["Recency"].quantile(0.33), "high": rfm["Recency"].quantile(0.66)}
+        f_q = {"low": rfm["Frequency"].quantile(0.33), "high": rfm["Frequency"].quantile(0.66)}
+        m_q = {"low": rfm["Monetary"].quantile(0.33), "high": rfm["Monetary"].quantile(0.66)}
+
+        def suggest_actions(r: float, f: float, m: float):
+            actions: list[str] = []
+            # Recency: lower is better
+            if r <= r_q["low"]:
+                actions.append("Upsell/cross-sell theo lịch sử sản phẩm vừa mua.")
+            elif r >= r_q["high"]:
+                actions.append("Kích hoạt lại bằng email/SMS kèm ưu đãi quay lại thời hạn ngắn.")
+            else:
+                actions.append("Nhắc nhớ nhẹ nhàng và gợi ý sản phẩm liên quan.")
+            # Frequency: higher is better
+            if f >= f_q["high"]:
+                actions.append("Tăng quyền lợi loyalty/tier; chương trình dành riêng.")
+            elif f <= f_q["low"]:
+                actions.append("Khuyến khích mua lại bằng voucher nhỏ hoặc freeship ngưỡng thấp.")
+            else:
+                actions.append("Bundle/combo để tăng tần suất.")
+            # Monetary: higher is better
+            if m >= m_q["high"]:
+                actions.append("Đề xuất sản phẩm cao cấp/độc quyền; chăm sóc ưu tiên.")
+            elif m <= m_q["low"]:
+                actions.append("Đề xuất sản phẩm giá hợp lý; tối ưu chi phí vận chuyển.")
+            else:
+                actions.append("Gợi ý nâng giá trị giỏ bằng phụ kiện/phụ trợ.")
+            return actions
+
+        # Rank clusters into customer tiers (1 = best)
+        r_min, r_max = cluster_means['Recency'].min(), cluster_means['Recency'].max()
+        f_min, f_max = cluster_means['Frequency'].min(), cluster_means['Frequency'].max()
+        m_min, m_max = cluster_means['Monetary'].min(), cluster_means['Monetary'].max()
+        def norm(val: float, vmin: float, vmax: float) -> float:
+            return 0.0 if vmax == vmin else (val - vmin) / (vmax - vmin)
+
+        rank_df = []
+        for cid, row in cluster_means.iterrows():
+            score = (1 - norm(row['Recency'], r_min, r_max)) + \
+                    norm(row['Frequency'], f_min, f_max) + \
+                    norm(row['Monetary'], m_min, m_max)
+            rank_df.append({'Cluster': cid, 'Score': score})
+        rank_df = pd.DataFrame(rank_df).sort_values('Score', ascending=False).reset_index(drop=True)
+        rank_df['Rank'] = rank_df.index + 1
+        cluster_to_rank = dict(zip(rank_df['Cluster'], rank_df['Rank']))
+
+        # Build tiered names and actions per cluster
+        cluster_info = []
+        for cid, row in cluster_means.iterrows():
+            rank = cluster_to_rank[cid]
+            name = f"Khách hạng {rank}"
+            actions = suggest_actions(row['Recency'], row['Frequency'], row['Monetary'])
+            cluster_info.append({"Cluster": cid, "Hạng": rank, "Tên nhóm": name, "Actions": actions})
+
+        st.caption(f"Có {k} loại khách hàng: từ Khách hạng 1 đến {k}.")
+        st.dataframe(
+            pd.DataFrame([{ "Hạng": c["Hạng"], "Cluster": c["Cluster"] } for c in cluster_info]).sort_values("Hạng"),
+            use_container_width=True,
+        )
+
         st.subheader("Diễn giải & Đề xuất hành động")
-        for cluster_id, row in cluster_means.iterrows():
-            name, actions = _name_and_actions_for_cluster(
-                r=row["Recency"], f=row["Frequency"], m=row["Monetary"],
-                r_med=r_med, f_med=f_med, m_med=m_med
-            )
-            with st.expander(f"Cụm {cluster_id}: {name}"):
+        for info in sorted(cluster_info, key=lambda x: x['Hạng']):
+            rank = info["Hạng"]
+            cid = info["Cluster"]
+            actions = info["Actions"]
+            row = cluster_means.loc[cid]
+            with st.expander(f"Hạng {rank} (Cluster {cid})"):
                 cols = st.columns(3)
                 cols[0].metric("Recency (↓ tốt)", value=row["Recency"])
                 cols[1].metric("Frequency (↑ tốt)", value=row["Frequency"])
