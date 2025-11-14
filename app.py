@@ -73,24 +73,137 @@ def _name_and_actions_for_cluster(r: float, f: float, m: float, r_med: float, f_
         ],
     )
 
+with traditional_tab:
+    st.header("Phân tích truyền thống")
+    st.caption("Tải dữ liệu")
+    # file uploader and path input for the traditional tab (unique keys)
+    uploaded_file_tradition = st.file_uploader(
+        "Tải file CSV (Online Retail II)", type=["csv"], key="file_uploader_tradition"
+    )
+    csv_path_tradition = st.text_input(
+        "Hoặc nhập đường dẫn tới CSV trên máy",
+        value="",
+        placeholder="VD: D:\\data\\online_retail_II.csv",
+        key="csv_path_tradition",
+    )
+
+    if uploaded_file_tradition is None and not csv_path_tradition:
+        st.warning("Vui lòng tải CSV hoặc nhập đường dẫn để bắt đầu phân tích.")
+        st.stop()
+    try:
+        if uploaded_file_tradition is not None:
+            df_raw = pd.read_csv(uploaded_file_tradition)
+        else:
+            df_raw = pd.read_csv(csv_path_tradition)
+
+
+        # Clean the raw data to remove returns / negative quantities before aggregations
+        df_clean = clean_retail_data(df_raw)
+
+        st.subheader("Doanh thu")
+        df_clean['InvoiceDate'] = pd.to_datetime(df_clean['InvoiceDate'])
+        # snapshot_date used to compute recency (use one day after last invoice in data)
+        snapshot_date = df_clean['InvoiceDate'].max() + pd.Timedelta(days=1)
+        df_clean['Month'] = df_clean['InvoiceDate'].dt.strftime('%Y-%m')
+        # TotalPrice already created in clean_retail_data; use cleaned frame for revenue
+        revenue_per_month = (
+            df_clean.groupby('Month')['TotalPrice'].sum().reset_index()
+        )
+        fig_revenue = px.line(
+            revenue_per_month,
+            x='Month',
+            y='TotalPrice',
+            title='Doanh thu theo tháng (không tính đơn trả/hủy)',
+            labels={'TotalPrice': 'Doanh thu', 'Month': 'Tháng'}
+        )
+        st.plotly_chart(fig_revenue, use_container_width=True)
+
+        st.subheader("Sản phẩm bán chạy")
+        top_products = (
+            df_clean.groupby('Description')['Quantity'].sum().reset_index()
+            .sort_values(by='Quantity', ascending=False)
+            .head(5)
+        )
+        fig_top_products = px.bar(
+            top_products,
+            x='Description',
+            y='Quantity',
+            title='Top 5 sản phẩm bán chạy (không tính đơn trả/hủy)',
+            labels={'Description': 'Sản phẩm', 'Quantity': 'Số lượng bán'}
+        )
+        st.plotly_chart(fig_top_products, use_container_width=True)
+
+        st.subheader("Khách hàng")
+
+        # Nhóm theo Customer ID và tính R, F, M (dùng dữ liệu đã làm sạch để loại đơn trả)
+        rfm_df = df_clean.groupby('Customer ID').agg(
+            R_Recency=('InvoiceDate', lambda x: (snapshot_date - x.max()).days),
+            F_Frequency=('Invoice', 'nunique'),
+            M_Monetary=('TotalPrice', 'sum')
+        ).reset_index() # Chuyển customer_id từ index thành cột
+        
+        # Filter controls for RFM
+        col1, col2 = st.columns(2)
+        with col1:
+            min_monetary = st.number_input(
+                "Monetary ≥ (Tối thiểu)",
+                value=0.0,
+                step=10.0,
+                key="min_monetary_filter"
+            )
+        with col2:
+            max_recency = st.number_input(
+                "Recency ≤ (Tối đa ngày)",
+                value=999,
+                step=10,
+                key="max_recency_filter"
+            )
+            
+        run_filter = st.button("Lọc", key="run_rfm_filter")
+        
+        # Apply filters only when button is clicked
+        if run_filter:
+            filtered_rfm = rfm_df[
+                (rfm_df['M_Monetary'] >= min_monetary) & 
+                (rfm_df['R_Recency'] <= max_recency)
+            ]
+            
+            st.caption(f"Hiển thị {len(filtered_rfm)} / {len(rfm_df)} khách hàng")
+            st.dataframe(filtered_rfm, use_container_width=True)
+        else:
+            st.caption(f"Nhấn nút 'Lọc' để tìm kiếm khách hàng")
+            st.dataframe(rfm_df, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Lỗi khi tải dữ liệu: {e}")
+
+
 with ai_tab:
     st.header("Phân tích AI: Phân cụm khách hàng theo RFM")
     st.caption("Tải dữ liệu, chọn số cụm K, xem phân tán theo cụm, bảng trung bình R-F-M và diễn giải.")
 
     col_left, col_right = st.columns([2, 1])
     with col_left:
-        uploaded_file = st.file_uploader("Tải file CSV (Online Retail II)", type=["csv"])
-        csv_path = st.text_input("Hoặc nhập đường dẫn tới CSV trên máy", value="", placeholder="VD: D:\\data\\online_retail_II.csv")
+        # file uploader and path input for the AI tab (unique keys)
+        uploaded_file_ai = st.file_uploader(
+            "Tải file CSV (Online Retail II)", type=["csv"], key="file_uploader_ai"
+        )
+        csv_path_ai = st.text_input(
+            "Hoặc nhập đường dẫn tới CSV trên máy",
+            value="",
+            placeholder="VD: D:\\data\\online_retail_II.csv",
+            key="csv_path_ai",
+        )
     with col_right:
         k = st.slider("Chọn số cụm (K)", min_value=2, max_value=6, value=4, step=1)
 
-    if uploaded_file is None and not csv_path:
+    if uploaded_file_ai is None and not csv_path_ai:
         st.warning("Vui lòng tải CSV hoặc nhập đường dẫn để bắt đầu phân tích.")
         st.stop()
 
     try:
-        if uploaded_file is not None:
-            df_raw = pd.read_csv(uploaded_file)
+        if uploaded_file_ai is not None:
+            df_raw = pd.read_csv(uploaded_file_ai)
             df_clean = clean_retail_data(df_raw)
             rfm, snapshot_date = compute_rfm(df_clean)
             X_scaled, scaler = scale_rfm(rfm)
@@ -98,7 +211,7 @@ with ai_tab:
             rfm = rfm.copy()
             rfm["Cluster"] = kmeans_model.labels_
         else:
-            result = run_rfm_kmeans_pipeline(csv_path, n_clusters=k)
+            result = run_rfm_kmeans_pipeline(csv_path_ai, n_clusters=k)
             rfm = result["rfm"]
 
         st.subheader("Biểu đồ phân tán theo cụm")
