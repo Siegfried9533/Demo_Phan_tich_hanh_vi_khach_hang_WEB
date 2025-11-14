@@ -269,6 +269,51 @@ with ai_tab:
         )
         st.dataframe(cluster_means, use_container_width=True)
 
+        # Bar chart: number of customers by cluster
+        st.subheader("Số khách hàng theo cụm")
+        customers_per_cluster = (
+            rfm.groupby("Cluster")["Customer ID"]
+            .nunique()
+            .reset_index(name="Số khách hàng")
+            .sort_values("Cluster")
+        )
+        fig_cluster_counts = px.bar(
+            customers_per_cluster,
+            x="Cluster",
+            y="Số khách hàng",
+            color="Cluster",
+            color_discrete_sequence=px.colors.qualitative.Set2,
+            title="Số khách hàng theo từng cụm (K)",
+            labels={"Cluster": "Cụm", "Số khách hàng": "Số khách hàng"},
+            template='plotly_white',
+            text="Số khách hàng",
+        )
+        fig_cluster_counts.update_traces(textposition="outside")
+        st.plotly_chart(fig_cluster_counts, use_container_width=True)
+
+        # Customer IDs and details per cluster
+        st.subheader("Khách hàng theo từng cụm")
+        clusters = sorted(rfm["Cluster"].unique().tolist())
+        cluster_tabs = st.tabs([f"Cụm {cid}" for cid in clusters])
+        for idx, cid in enumerate(clusters):
+            with cluster_tabs[idx]:
+                rfm_cluster = rfm[rfm["Cluster"] == cid]
+                ids_df = (
+                    rfm_cluster[["Customer ID"]]
+                    .drop_duplicates()
+                    .sort_values("Customer ID")
+                    .reset_index(drop=True)
+                )
+                st.caption(f"Số khách hàng trong cụm {cid}: {len(ids_df)}")
+
+                st.markdown("**Bảng R-F-M của cụm:**")
+                st.dataframe(
+                    rfm_cluster[["Customer ID", "Recency", "Frequency", "Monetary"]]
+                    .sort_values("Customer ID")
+                    .reset_index(drop=True),
+                    use_container_width=True,
+                )
+
         r_med = rfm["Recency"].median()
         f_med = rfm["Frequency"].median()
         m_med = rfm["Monetary"].median()
